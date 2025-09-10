@@ -15,8 +15,6 @@ pub struct RadioRecord {
     pub radio_type: Option<String>,
     pub dcc: Option<String>,
     pub slot1: SlotData,
-    pub slot2: SlotData,
-    // path to audio if found (optional)
-    pub audio_path: Option<String>,
+    pub slot2: SlotData
 }
 

@@ -4,7 +4,6 @@ mod model;
 mod csv_sink;
 mod errors;
 mod transcriber;
-mod record_match;
 mod filter;
 mod transcription_adder;
 
@@ -54,11 +53,24 @@ async fn main() -> Result<(), AppError> {
     setup_logging(&args.log_level);
     info!("Starting: processing {} files", args.input_files.len());
 
-    let transcriber: Option<Arc<dyn transcriber::Transcriber + Send + Sync>> =
-        match args.transcriber.as_str() {
-            "text" => Some(Arc::new(transcriber::TextFileTranscriber::new())),
-            _ => None,
-        };
+    // before building the pipelines
+    let transcriber: Option<Arc<dyn transcriber::Transcriber + Send + Sync>> = match args.transcriber.as_str() {
+        "text" => {
+            match args.record_dir.as_ref() {
+                Some(root) => {
+                    // build the index now
+                    let t = transcriber::TextFileTranscriber::new_indexed(root)?;
+                    Some(Arc::new(t))
+                }
+                None => {
+                    warn!("--transcriber text used without --record-dir; no transcripts will be found");
+                    Some(Arc::new(transcriber::TextFileTranscriber::new()))
+                }
+            }
+        }
+        _ => None,
+    };
+
 
     let tz_offset = compute_tz_offset(&args.tz);
 
