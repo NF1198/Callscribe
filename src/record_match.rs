@@ -18,8 +18,8 @@ pub fn find_audio_for_record(record: &RadioRecord, record_dir: &Path) -> Result<
     let time_str = record.datetime.time().format("%H%M%S").to_string();
     let freq_str = record.frequency.clone().unwrap_or_default();
     // build candidate patterns
-    let pat1 = format!(r"^{}[_-].*{}.*\.(mp3|wav)$", regex::escape(&time_str), regex::escape(&freq_str));
-    let pat2 = format!(r"^{}_{}.*\.(mp3|wav)$", regex::escape(&time_str), regex::escape(&freq_str));
+    let pat1 = format!(r"^{}[_-].*{}.*\.(mp3|wav|txt)$", regex::escape(&time_str), regex::escape(&freq_str));
+    let pat2 = format!(r"^{}_{}.*\.(mp3|wav|txt)$", regex::escape(&time_str), regex::escape(&freq_str));
     let re1 = Regex::new(&pat1).unwrap();
     let re2 = Regex::new(&pat2).unwrap();
 

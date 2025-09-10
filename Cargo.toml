@@ -4,16 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-argparse = "0.2"           # CLI per your request. :contentReference[oaicite:0]{index=0}
-regex = "1.11"            # robust pattern extraction. :contentReference[oaicite:1]{index=1}
-chrono = { version = "0.4", features = ["serde", "clock"] }  # date-time, tz handling. :contentReference[oaicite:2]{index=2}
-chrono-tz = "0.6"         # if user supplies IANA timezone. :contentReference[oaicite:3]{index=3}
-log = "0.4"               # logging facade. :contentReference[oaicite:4]{index=4}
-env_logger = "0.10"       # simple logger backing. :contentReference[oaicite:5]{index=5}
-csv = "1.2"               # CSV writer. :contentReference[oaicite:6]{index=6}
-serde = { version = "1.0", features = ["derive"] }
-reqwest = { version = "0.11", features = ["blocking","json"] } # for web-based transcriber
-serde_json = "1.0"
-anyhow = "1.0"
-walkdir = "2.3"           # walk Record dir
+argparse = "0.2"
+chrono = { version = "0.4", features = ["clock"] }
+chrono-tz = "0.8"
+env_logger = "0.11"
+log = "0.4"
+regex = "1"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "rt-multi-thread", "sync"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+csv-async = "1"
 thiserror = "2"
+walkdir = "2.5.0"
