@@ -9,6 +9,7 @@ mod transcriber;
 mod filter;
 mod transcription_adder;
 mod rle_filter;
+mod event_stream;
 
 use crate::errors::AppError;
 use chrono::{FixedOffset, Utc};
@@ -139,7 +140,21 @@ async fn run_pipeline(
 
     // 1) Parser (producer)
     let p_in = in_path.clone();
-    let producer = tokio::spawn(async move { srt_stream::stream_file(&p_in, tz_offset, tx_parse).await });
+    let producer = tokio::spawn(async move {
+        match p_in.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
+            "event" => event_stream::stream_file(&p_in, tz_offset, tx_parse).await,
+            "srt"   => srt_stream::stream_file(&p_in, tz_offset, tx_parse).await,
+            _       => {
+                // Heuristic: *.event often lacks blocks; default to event parser, else SRT
+                // If you prefer strictness, return an error instead.
+                if p_in.file_name().and_then(|n| n.to_str()).unwrap_or("").to_ascii_lowercase().ends_with(".event") {
+                    event_stream::stream_file(&p_in, tz_offset, tx_parse).await
+                } else {
+                    srt_stream::stream_file(&p_in, tz_offset, tx_parse).await
+                }
+            }
+        }
+    });
 
     // 2) Filter (drop non-matching)
     let f_cfg = Arc::clone(&cfg);
