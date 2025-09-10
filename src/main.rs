@@ -1,34 +1,31 @@
 mod cli;
+mod srt_stream;
 mod model;
+mod csv_sink;
 mod errors;
 mod transcriber;
 mod record_match;
-
-mod srt_stream;
-mod csv_sink;
 mod filter;
+mod transcription_adder;
 
 use crate::errors::AppError;
 use chrono::{FixedOffset, Utc};
 use chrono_tz::Tz;
 use env_logger::Env;
-use log::{debug, info, warn};
+use log::{info, warn};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 fn setup_logging(level: &str) {
-    let env = Env::default().filter_or(
-        "RUST_LOG",
-        match level {
-            "info" => "info",
-            "debug" => "debug",
-            "trace" => "trace",
-            "warn" => "warn",
-            "error" => "error",
-            _ => "info",
-        },
-    );
+    let env = Env::default().filter_or("RUST_LOG", match level {
+        "essential" => "info",
+        "debug" => "debug",
+        "trace" => "trace",
+        "warn" => "warn",
+        "error" => "error",
+        _ => "info",
+    });
     env_logger::Builder::from_env(env).init();
 }
 
@@ -57,7 +54,6 @@ async fn main() -> Result<(), AppError> {
     setup_logging(&args.log_level);
     info!("Starting: processing {} files", args.input_files.len());
 
-    // Transcriber (optional); keep behavior-based trait and spawn_blocking when used.
     let transcriber: Option<Arc<dyn transcriber::Transcriber + Send + Sync>> =
         match args.transcriber.as_str() {
             "text" => Some(Arc::new(transcriber::TextFileTranscriber::new())),
@@ -66,7 +62,6 @@ async fn main() -> Result<(), AppError> {
 
     let tz_offset = compute_tz_offset(&args.tz);
 
-    // Build filter config once; share via Arc
     let cfg = Arc::new(filter::FilterConfig {
         freqs: args.freqs.clone(),
         rtypes: args.rtypes.clone(),
@@ -75,7 +70,6 @@ async fn main() -> Result<(), AppError> {
         nacs: args.nacs.clone(),
     });
 
-    // Process each file as its own concurrent pipeline
     let mut tasks = Vec::new();
     for in_path in &args.input_files {
         let in_path = in_path.clone();
@@ -92,7 +86,6 @@ async fn main() -> Result<(), AppError> {
         tasks.push(t);
     }
 
-    // Wait all
     for t in tasks {
         let _ = t.await;
     }
@@ -112,84 +105,44 @@ async fn run_pipeline(
 
     info!("Reading file {}", in_path.display());
 
-    // Channels between stages
-    // srt_stream -> filter/transcribe
-    let (tx_records, rx_records) = mpsc::channel::<RadioRecord>(1024);
-    // filtered/transcribed -> csv sink
+    let (tx_parse, rx_parse) = mpsc::channel::<RadioRecord>(1024);
+    let (tx_filt, rx_filt) = mpsc::channel::<RadioRecord>(1024);
     let (tx_rows, rx_rows) = mpsc::channel::<RadioRecord>(1024);
 
-    // 1) SRT parser task (producer)
+    // 1) Parser
     let p_in = in_path.clone();
     let producer = tokio::spawn(async move {
-        srt_stream::stream_file(&p_in, tz_offset, tx_records).await
+        srt_stream::stream_file(&p_in, tz_offset, tx_parse).await
     });
 
-    // 2) Filter (+ optional transcription) stage
+    // 2) Filter
     let f_cfg = Arc::clone(&cfg);
-    let f_record_dir = record_dir.clone();
-    let f_transcriber = transcriber.clone();
-
-    let filter_stage = tokio::spawn(async move {
-        use tokio::sync::Semaphore;
-        let sem = Arc::new(Semaphore::new(4)); // limit parallel transcriptions
-
-        let mut rx = rx_records;
-        while let Some(mut rec) = rx.recv().await {
-            if !f_cfg.accept(&rec) {
-                continue;
-            }
-
-            // Optional transcription on slot1.text using audio match
-            if let (Some(dir), Some(t)) = (&f_record_dir, &f_transcriber) {
-                if rec.audio_path.is_none() {
-                    if let Ok(Some(p)) = record_match::find_audio_for_record(&rec, dir.as_path()) {
-                        rec.audio_path = Some(p.to_string_lossy().to_string());
-                    }
-                }
-                if rec.audio_path.is_some() && rec.slot1.text.is_none() {
-                    let p = rec.audio_path.clone().unwrap();
-                    let t = t.clone();
-                    let permit = sem.clone().acquire_owned().await.unwrap();
-                    // Run transcription in blocking pool to avoid starving reactor
-                    let text = tokio::task::spawn_blocking(move || {
-                        let _permit = permit; // hold until done
-                        t.transcribe(std::path::Path::new(&p))
-                    })
-                    .await
-                    .ok()
-                    .and_then(|r| r.ok());
-                    if let Some(txt) = text {
-                        rec.slot1.text = Some(txt);
-                    }
-                }
-            }
-
-            if tx_rows.send(rec).await.is_err() {
-                break;
-            }
-        }
+    let filter_task = tokio::spawn(async move {
+        filter::filter_stream(f_cfg, rx_parse, tx_filt).await;
         Ok::<_, AppError>(())
     });
 
-    // 3) CSV sink task (consumer)
+    // 3) Transcription adder
+    let t_record_dir = record_dir.clone();
+    let t_transcriber = transcriber.clone();
+    let trans_task = tokio::spawn(async move {
+        transcription_adder::add_transcriptions(rx_filt, tx_rows, t_record_dir, t_transcriber, 4).await
+    });
+
+    // 4) CSV sink
     let out_path = in_path.with_extension("csv");
     let sink = tokio::spawn(async move {
         csv_sink::write_csv_stream(out_path.as_path(), rx_rows).await
     });
 
-    // Join stages
     let p_res = producer.await.unwrap_or_else(|e| Err(AppError::IO(format!("producer join: {e}"))));
-    let f_res = filter_stage.await.unwrap_or_else(|e| Err(AppError::IO(format!("filter join: {e}"))));
+    let f_res = filter_task.await.unwrap_or_else(|e| Err(AppError::IO(format!("filter join: {e}"))));
+    let t_res = trans_task.await.unwrap_or_else(|e| Err(AppError::IO(format!("transcriber join: {e}"))));
     let s_res = sink.await.unwrap_or_else(|e| Err(AppError::IO(format!("sink join: {e}"))));
 
-    // Report
-    if let Err(e) = &p_res { debug!("producer error: {}", e); }
-    if let Err(e) = &f_res { debug!("filter error: {}", e); }
-    if let Err(e) = &s_res { debug!("sink error: {}", e); }
-
-    // Prefer earlier stage error if any
     p_res?;
     f_res?;
+    t_res?;
     s_res?;
     info!("Finished {}", in_path.display());
     Ok(())

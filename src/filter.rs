@@ -1,4 +1,6 @@
 use crate::model::RadioRecord;
+use tokio::sync::mpsc::{Receiver, Sender};
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct FilterConfig {
@@ -42,5 +44,19 @@ impl FilterConfig {
             }
         }
         true
+    }
+}
+
+/// Async stage: forwards only records that pass `cfg`.
+pub async fn filter_stream(
+    cfg: Arc<FilterConfig>,
+    mut rx: Receiver<RadioRecord>,
+    tx: Sender<RadioRecord>,
+) {
+    while let Some(rec) = rx.recv().await {
+        if cfg.accept(&rec) {
+            // Ignore send errors (downstream closed) → terminate.
+            if tx.send(rec).await.is_err() { break; }
+        }
     }
 }

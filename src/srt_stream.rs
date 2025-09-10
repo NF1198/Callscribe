@@ -33,10 +33,6 @@ fn apply_tz(
 
 #[inline]
 fn parse_freq_type_dcc(line: &str) -> (Option<String>, Option<String>, Option<String>) {
-    // Accepts:
-    // "425.263000  +DMR  DCC=5"
-    // "153.762500  +P25p2  NAC=6A2"
-    // "153.450000  +IDAS VOICE  NAC=6A2"
     let s = strip_bom(line.trim());
     let mut it = s.split_whitespace().peekable();
 
@@ -60,8 +56,8 @@ fn parse_freq_type_dcc(line: &str) -> (Option<String>, Option<String>, Option<St
         it.next();
     }
     if !parts.is_empty() {
-        // Guard for Excel: remove leading '+'
         let joined = parts.join(" ");
+        // Excel guard: drop leading '+'
         let guarded = joined.trim_start_matches('+').to_string();
         rtype = Some(guarded);
     }
@@ -118,14 +114,12 @@ pub async fn stream_file(
             None => break,
         };
         if idx_line.trim().is_empty() {
-            // skip blank separators
             continue;
         }
         let idx_raw = strip_bom(idx_line.trim());
         let record_number = match idx_raw.parse::<usize>() {
             Ok(v) => v,
             Err(_) => {
-                // drain to next blank
                 debug!("non-numeric index: {:?}", idx_raw);
                 drain_block(&mut r).await?;
                 continue;
@@ -134,11 +128,10 @@ pub async fn stream_file(
         trace!("block start: index={}", record_number);
 
         // 2) timerange (ignored)
-        let timerange = match r.next_line().await? {
+        let _timerange = match r.next_line().await? {
             Some(s) => s,
             None => break,
         };
-        trace!("timerange: {}", strip_bom(timerange.trim()));
 
         // 3) absolute datetime
         let dt_line = match r.next_line().await? {
@@ -162,7 +155,6 @@ pub async fn stream_file(
                 continue;
             }
         };
-        trace!("datetime -> {}", datetime);
 
         // 4) freq/type/(DCC|NAC)
         let freq_line = match r.next_line().await? {
@@ -170,10 +162,6 @@ pub async fn stream_file(
             None => break,
         };
         let (frequency, radio_type, dcc) = parse_freq_type_dcc(&freq_line);
-        trace!(
-            "freq/type/dcc: freq={:?} type={:?} dcc/nac={:?}",
-            frequency, radio_type, dcc
-        );
 
         // 5+) details: until blank or EOF
         let mut slot1 = SlotData { tg: None, rid: None, text: None };
@@ -191,7 +179,6 @@ pub async fn stream_file(
                 let slot_no = it.next().unwrap_or("");
                 let rest_of_line = rest.get(slot_no.len()..).unwrap_or("").trim();
                 let (tg, rid) = parse_tg_rid(rest_of_line);
-                trace!("slot line: slot={} tg={:?} rid={:?}", slot_no, tg, rid);
                 match slot_no {
                     "1" => { if tg.is_some() { slot1.tg = tg; } if rid.is_some() { slot1.rid = rid; } }
                     "2" => { if tg.is_some() { slot2.tg = tg; } if rid.is_some() { slot2.rid = rid; } }
@@ -199,11 +186,8 @@ pub async fn stream_file(
                 }
             } else if s_nb.starts_with("TG=") || s_nb.contains(" TG=") || s_nb.contains("RID=") {
                 let (tg, rid) = parse_tg_rid(s_nb);
-                trace!("single-slot line: tg={:?} rid={:?}", tg, rid);
                 if slot1.tg.is_none() && tg.is_some() { slot1.tg = tg; } else if slot2.tg.is_none() && tg.is_some() { slot2.tg = tg; }
                 if slot1.rid.is_none() && rid.is_some() { slot1.rid = rid; } else if slot2.rid.is_none() && rid.is_some() { slot2.rid = rid; }
-            } else {
-                trace!("ignoring detail line: {}", s_nb);
             }
         }
 
