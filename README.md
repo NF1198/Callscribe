@@ -1,8 +1,8 @@
-# DSD Event Parser
+# Callscribe
 
 ## Functional Overview
 
-**DSD Event Parser** is a high-performance, asynchronous Rust application for parsing [DSDPlus](http://www.dsdplus.com/) SRT log files and converting them into structured CSV output.  
+**Callscribe** is a high-performance, asynchronous Rust application for parsing [DSDPlus](http://www.dsdplus.com/) SRT log files and converting them into structured CSV output.  
 
 The tool is designed to:
 - Stream parse `.srt` files line-by-line, avoiding memory bloat.
