@@ -29,6 +29,7 @@ pub async fn write_csv_stream(
     wtr.write_record(&[
         "record_number",
         "datetime",
+        "duration",
         "frequency",
         "radio_type",
         "dcc",
@@ -48,6 +49,7 @@ pub async fn write_csv_stream(
         let row = [
             r.record_number.to_string(),
             r.datetime.format("%Y-%m-%d %H:%M:%S").to_string(),
+            r.duration.to_string(),
             r.frequency.clone().unwrap_or_default(),
             excel_guard_radio_type(r.radio_type.as_deref().unwrap_or("")),
             r.dcc.clone().unwrap_or_default(),

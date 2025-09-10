@@ -198,7 +198,8 @@ pub async fn stream_file(
             radio_type,
             dcc,
             slot1,
-            slot2
+            slot2,
+            duration: 1
         };
 
         if tx.send(rec).await.is_err() {
