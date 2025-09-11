@@ -5,7 +5,7 @@
 **Callscribe** is a high-performance, asynchronous Rust application for parsing [DSDPlus](http://www.dsdplus.com/) SRT log files and converting them into structured CSV output.  
 
 The tool is designed to:
-- Stream parse `.srt` and `.event`.
+- Read `.srt` and/or `.event` files.
 - Apply flexible filters (frequencies, radio types, radio IDs, talkgroups, NACs).
 - Enrich parsed records with transcriptions from associated recording artifacts (e.g., pre-transcribed `.txt` files).
 - Output Excel-compatible CSV files suitable for further analysis and archival.
